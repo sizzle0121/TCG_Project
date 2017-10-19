@@ -21,17 +21,15 @@
 #include "agent.h"
 #include "statistic.h"
 
-
 int main(int argc, const char* argv[]) {
-	
-	construct_fib();
 
+	construct_fib();
 
 	std::cout << "2584-Demo: ";
 	std::copy(argv, argv + argc, std::ostream_iterator<const char*>(std::cout, " "));
 	std::cout << std::endl << std::endl;
 
-	size_t total = 1000, block = 0;
+	size_t total = 1000, block = 0, limit = 0;
 	std::string play_args, evil_args;
 	std::string load, save;
 	bool summary = false;
@@ -41,6 +39,8 @@ int main(int argc, const char* argv[]) {
 			total = std::stoull(para.substr(para.find("=") + 1));
 		} else if (para.find("--block=") == 0) {
 			block = std::stoull(para.substr(para.find("=") + 1));
+		} else if (para.find("--limit=") == 0) {
+			limit = std::stoull(para.substr(para.find("=") + 1));
 		} else if (para.find("--play=") == 0) {
 			play_args = para.substr(para.find("=") + 1);
 		} else if (para.find("--evil=") == 0) {
@@ -54,7 +54,7 @@ int main(int argc, const char* argv[]) {
 		}
 	}
 
-	statistic stat(total, block);
+	statistic stat(total, block, limit);
 
 	if (load.size()) {
 		std::ifstream in;
@@ -76,7 +76,7 @@ int main(int argc, const char* argv[]) {
 		while (true) {
 			agent& who = stat.take_turns(play, evil);
 			action move = who.take_action(game);
-			if (move.apply(game) == -1)	break;
+			if (move.apply(game) == -1) break;
 			stat.save_action(move);
 			if (who.check_for_win(game)) break;
 		}
