@@ -84,10 +84,10 @@ public:
 				row[c] = 0;
 				if (hold) {
 					if (abs(tile-hold) == 1 || (tile == hold && tile == 1)) {//merge 
-						row[top++] = std::max(tile, hold) + 1;//max(tile, hold) + 1
-						score += fib[std::max(tile, hold) + 1];	//modify tile
+						row[top++] = std::max(tile, hold) + 1;			//max(tile, hold) + 1
+						score += fib[std::max(tile, hold) + 1];			//modify tile
 						hold = 0;
-					} else {//no merge
+					} else {							//no merge
 						row[top++] = hold;
 						hold = tile;
 					}
@@ -96,23 +96,6 @@ public:
 				}
 			}
 			if (hold) tile[r][top] = hold;
-		}
-
-		max_tile = 0;
-		max_tile_i = 0;
-		max_tile_j = 0;
-		empty_blk = 0;
-		for(int i=0; i<4; i++){
-			for(int j=0; j<4; j++){
-				if(tile[i][j] == 0)
-					empty_blk++;
-				if(tile[i][j] > max_tile){
-					max_tile = tile[i][j];
-					max_tile_i = i;
-					max_tile_j = j;
-				}
-					
-			}
 		}
 
 		return (*this != prev) ? score : -1;
@@ -176,41 +159,7 @@ public:
 	void rotate_left() { transpose(); reflect_vertical(); } // counterclockwise
 	void reverse() { reflect_horizontal(); reflect_vertical(); }
 
-	int getEmptyBlk(){
-		return empty_blk;
-	}
-
-	int getMonoDec(){
-		bool used[4][4];
-		for(int i=0; i<4; i++){
-			for(int j=0; j<4; j++){
-				used[i][j] = false;
-			}
-		}
-		int accum = 0;
-		int walk[4][2] = {{0,1}, {1,0}, {0,-1}, {-1,0}};
-		std::queue<int> qi, qj;
-		qi.push(max_tile_i);
-		qj.push(max_tile_j);
-		used[max_tile_i][max_tile_j] = true;
-		while(qi.size() != 0){
-			int x = qi.front(), y = qj.front();
-			qi.pop();
-			qj.pop();
-			for(int i=0; i<4; i++){
-				int tx = x + walk[i][0], ty = y + walk[i][1];
-				if(tx < 4 && tx >= 0 && ty < 4 && ty >= 0 && used[tx][ty] == false){
-					if(tile[x][y] < tile[tx][ty]){
-						accum += tile[tx][ty] - tile[x][y];
-					}
-					qi.push(tx);
-					qj.push(ty);
-					used[tx][ty] = true;
-				}
-			}
-		}
-		return accum;
-	}
+	
 
 public:
     friend std::ostream& operator <<(std::ostream& out, const board& b) {
@@ -230,6 +179,7 @@ public:
 
 private:
     std::array<std::array<int, 4>, 4> tile;
+    //int fib[20];
     int empty_blk;
     int max_tile, max_tile_i, max_tile_j;
 };

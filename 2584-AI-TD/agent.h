@@ -5,11 +5,16 @@
 #include <map>
 #include <type_traits>
 #include <algorithm>
+#include <cstdlib>
 #include "board.h"
 #include "action.h"
 #include "weight.h"
+#include "sixtuple.h"
+#include "expectimax.h"
 
 #define gamma 1
+std::vector<weight> weights;
+
 
 class agent {
 public:
@@ -43,12 +48,7 @@ protected:
 	std::map<key, value> property;
 };
 
-/**
- * evil (environment agent)
- * add a new random tile on board, or do nothing if the board is full
- * 2-tile: 90%
- * 4-tile: 10%
- */
+
 class rndenv : public agent {
 public:
 	rndenv(const std::string& args = "") : agent("name=rndenv " + args) {
@@ -61,8 +61,8 @@ public:
 		std::shuffle(space, space + 16, engine);
 		for (int pos : space) {
 			if (after(pos) != 0) continue;
-			std::uniform_int_distribution<int> popup(0, 9);
-			int tile = popup(engine) ? 1 : 2;
+			std::uniform_int_distribution<int> popup(1, 100);
+			int tile = (popup(engine) <= 90) ? 1 : 3;
 			return action::place(tile, pos);
 		}
 		return action();
@@ -72,13 +72,10 @@ private:
 	std::default_random_engine engine;
 };
 
-/**
- * TODO: player (non-implement)
- * always return an illegal action
- */
+
 class player : public agent {
 public:
-	player(const std::string& args = "") : agent("name=player " + args), alpha(0.0025f) {
+	player(const std::string& args = "") : agent("name=player " + args), alpha(0.0025f) {//025f
 		if (property.find("seed") != property.end())
 			engine.seed(int(property["seed"]));
 		if (property.find("alpha") != property.end())
@@ -86,12 +83,9 @@ public:
 
 		if (property.find("load") != property.end())
 			load_weights(property["load"]);
-		//initialize the n-tuple network
 		else{
 			if(weights.size() == 0){
-				for(int i=0; i<8; i++){
-					weights.push_back(weight(24*24*24*24));
-				}
+				construct_SixTuple();
 			}
 		}
 	}
@@ -105,96 +99,79 @@ public:
 	}
 
 	virtual void close_episode(const std::string& flag = "") {
-		//train the n-tuple network by TD(0)
-		int power[4] = {1, 24, 24*24, 24*24*24 };
 		bool first = true;
 		while(episode.size() > 0){
 			board a = episode.back().after, b = episode.back().before;
 			int R = episode.back().reward;
 			float S_ = getStateValue(a), S = getStateValue(b);
-			for(int j=0; j<8; j++){//total 8 4-tuple
-				size_t match_weight_b = 0;
-				//calculate the idx of the weight for each tuple
-				if(j < 4){
-					for(int k=0; k<4; k++)
-						match_weight_b += (power[k] * b(j*4 + k));
-				}else if(j < 8){
-					for(int k=0; k<4; k++)
-						match_weight_b += (power[k] * b(j%4 + k*4));
+			int T = 8, cnt = 0;
+			while(T--){
+				board tmpb = b;
+				switch(cnt){
+					case 0:
+						break;
+					case 1:
+						tmpb.reflect_horizontal();
+						break;
+					case 2:
+						tmpb.reflect_vertical();
+						break;
+					case 3:	
+						tmpb.reflect_horizontal();
+						tmpb.reflect_vertical();
+						break;
+					case 4:
+						tmpb.rotate_right();
+						break;
+					case 5:
+						tmpb.rotate_right();
+						tmpb.reflect_horizontal();
+						break;
+					case 6:
+						tmpb.rotate_right();
+						tmpb.reflect_vertical();
+						break;
+					case 7:
+						tmpb.rotate_right();
+						tmpb.reflect_horizontal();
+						tmpb.reflect_vertical();
+						break;
 				}
-				//TD(0)
-				if(!first){
-					float data = weights[j][match_weight_b] + (alpha*(R + gamma*S_ - S));
-					weights[j].access(match_weight_b, data);
+				for(int i = 0; i < 4; ++i){
+					unsigned int match_weight_b = (i < 2)? accessSixTuple(i, tmpb) : accessFourTuple(i, tmpb);
+					//TD(0)
+					if(!first){
+						float data = weights[i][match_weight_b] + (alpha*(R + S_ - S));
+						weights[i].access(match_weight_b, data);
+					}
+					else{
+						float data = weights[i][match_weight_b] + (alpha*(0 - S));
+						weights[i].access(match_weight_b, data);
+					}
 				}
-				else{
-					float data = weights[j][match_weight_b] + (alpha*(0 - S));
-					weights[j].access(match_weight_b, data);
-				}
+				cnt++;
 			}
 			episode.pop_back();
 			first = false;
 		}
 	}
 
-	float getStateValue(board& b){
-		float sum = 0.0;
-		int power[4] = {1, 24, 24*24, 24*24*24 };
-		for(int i=0; i<8; i++){
-			size_t tmp = 0;
-			if(i < 4){
-				for(int j=0; j<4; j++)
-					tmp += (power[j] * b(i*4 + j));
-				sum += weights[i][tmp];
-			}else if(i < 8){
-				for(int j=0; j<4; j++)
-					tmp += (power[j] * b(i%4 + j*4));
-				sum += weights[i][tmp];
-			}
-		}
-		return sum;
-	}
-
 	virtual action take_action(const board& before) {
-		//select a proper action
-		float max_value = -1111111;
 		int max_op = -1;
-		float current_move_value;
-		bool rec = false;
-		for(int op=0; op<4; op++){
-			board b = before;
-			int current_move = b.move(op);
-			current_move_value = getStateValue(b);
-			if(current_move_value > 0)
-				rec = true;
-			if(current_move != -1){
-				if(current_move + current_move_value >= max_value){
-					max_value = current_move + current_move_value;
-					max_op = op;
-				}
-			}
-		}
-		//random action
-		int opcode[] = { 0, 1, 2, 3 };
-		if(!rec){
-			std::shuffle(opcode, opcode + 4, engine);
-			for (int op : opcode) {
-				board b = before;
-				if (b.move(op) != -1) max_op = op;
-			}
-		}
-		//push the step into episode
+		Expectimax find_act(3);
+		max_op = find_act.searchACT(before);
 		board b = before;
-
 		state tmp;
-		if(episode.size() > 0)
-			episode.back().after = b;
-		tmp.before = b;
-		if(max_op != -1)	tmp.reward = b.move(max_op);
-
-		episode.push_back(tmp);
-		if(max_op != -1)	return action::move(max_op);
-		else				return action();
+		if(max_op != -1){
+			tmp.reward = find_act.getExpectValue();
+			b.move(max_op);
+			tmp.before = b;
+			if(episode.size() > 0)	episode.back().after = b;
+			episode.push_back(tmp);
+			return action::move(max_op);
+		}
+		else
+			return action();
 	}
 
 public:
@@ -223,7 +200,7 @@ public:
 	}
 
 private:
-	std::vector<weight> weights;
+	
 
 	struct state {
 		board before;
